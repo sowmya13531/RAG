@@ -9,7 +9,7 @@ from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_classic.chains import RetrievalQA
 from langchain_huggingface import HuggingFacePipeline
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 from transformers import pipeline
 from unstructured.partition.docx import partition_docx
@@ -19,10 +19,6 @@ from unstructured.partition.docx import partition_docx
 # -------------------------------------------------
 
 def load_and_split_docs(filepaths):
-    """
-    Load PDF, DOCX, and TXT files and convert everything
-    into LangChain Document objects before splitting.
-    """
     all_docs = []
 
     for path in filepaths:
@@ -66,17 +62,13 @@ def load_and_split_docs(filepaths):
 
 
 def build_rag_chain(docs):
-    """Create embeddings, FAISS vectorstore, retriever, and RAG chain."""
-
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
     vectorstore = FAISS.from_documents(docs, embeddings)
 
-    retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 3}
-    )
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
     hf_pipeline = pipeline(
         "text2text-generation",
@@ -84,9 +76,7 @@ def build_rag_chain(docs):
         max_new_tokens=256
     )
 
-    llm = HuggingFacePipeline(
-        pipeline=hf_pipeline
-    )
+    llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
     rag_chain = RetrievalQA.from_chain_type(
         llm=llm,
@@ -99,8 +89,6 @@ def build_rag_chain(docs):
 
 
 def answer_question(files, question):
-    """Main Gradio callback."""
-
     if not files:
         return "❗ Please upload at least one document."
 
@@ -110,13 +98,11 @@ def answer_question(files, question):
     docs = load_and_split_docs(files)
 
     if len(docs) == 0:
-        return "❗ No readable text found in the uploaded documents."
-
-    rag_chain = build_rag_chain(docs)
+        return "❗ No readable text found in uploaded documents."
 
     try:
-        response = rag_chain.run(question)
-        return response
+        rag_chain = build_rag_chain(docs)
+        return rag_chain.run(question)
     except Exception as e:
         return f"⚠️ Error while answering: {str(e)}"
 
@@ -127,9 +113,7 @@ def answer_question(files, question):
 
 with gr.Blocks() as demo:
     gr.Markdown("# 📄 Multi-Document RAG Chatbot")
-    gr.Markdown(
-        "Upload multiple **PDF, Word, or TXT** documents and ask questions about their content."
-    )
+    gr.Markdown("Upload multiple PDFs, Word documents, or TXT files and ask questions.")
 
     with gr.Row():
         doc_files = gr.File(
@@ -141,13 +125,10 @@ with gr.Blocks() as demo:
 
     question_input = gr.Textbox(
         label="Ask a question",
-        placeholder="What is this document about?"
+        placeholder="What is the document about?"
     )
 
-    answer_output = gr.Textbox(
-        label="Answer",
-        lines=6
-    )
+    answer_output = gr.Textbox(label="Answer", lines=6)
 
     submit_btn = gr.Button("Get Answer")
 
@@ -157,13 +138,13 @@ with gr.Blocks() as demo:
         outputs=answer_output
     )
 
-
 # -------------------------------------------------
 # Run App
 # -------------------------------------------------
 
 if __name__ == "__main__":
     demo.launch()
+
 
 
 
