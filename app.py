@@ -1,19 +1,17 @@
 import gradio as gr
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.memory import ConversationBufferMemory
 from transformers import pipeline
 from operator import itemgetter
 
 # ------------------------------
-# Global memory for conversation
+# Simple chat memory
 # ------------------------------
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 chat_history = []
 
 # ------------------------------
@@ -39,8 +37,8 @@ def load_and_split_files(filepaths):
         all_docs.extend(chunks)
     return all_docs
 
-def build_rag_chain_with_memory(docs, memory):
-    """Create vectorstore, retriever, LLM, prompt, and RAG chain with conversational memory."""
+def build_rag_chain_with_memory(docs, chat_history):
+    """Create vectorstore, retriever, LLM, prompt, and RAG chain."""
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(docs, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
@@ -63,7 +61,7 @@ Question:
         {
             "context": retriever,
             "question": itemgetter("question"),
-            "chat_history": memory.buffer
+            "chat_history": "\n".join([f"Q: {q}\nA: {a}" for q, a in chat_history])
         }
         | prompt
         | llm
@@ -81,7 +79,7 @@ def chat_rag(files, question):
     if not docs:
         return "No valid documents found.", chat_history
 
-    rag_chain = build_rag_chain_with_memory(docs, memory)
+    rag_chain = build_rag_chain_with_memory(docs, chat_history)
     answer = rag_chain.invoke({"question": question})
 
     chat_history.append((question, answer))
@@ -114,6 +112,5 @@ with gr.Blocks() as demo:
 # ------------------------------
 if __name__ == "__main__":
     demo.launch()
-
 
 
