@@ -1,6 +1,5 @@
 import gradio as gr
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_community.document_loaders.unstructured import UnstructuredWordDocumentLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from langchain_text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -22,17 +21,17 @@ chat_history = []
 # ------------------------------
 
 def load_and_split_files(filepaths):
-    """Load multiple file formats and split into chunks."""
+    """Load PDF, DOCX, and TXT files and split them into chunks."""
     all_docs = []
     for path in filepaths:
         if path.endswith(".pdf"):
             loader = PyPDFLoader(path)
         elif path.endswith(".docx"):
-            loader = UnstructuredWordDocumentLoader(path)
+            loader = Docx2txtLoader(path)
         elif path.endswith(".txt"):
             loader = TextLoader(path)
         else:
-            continue  # Skip unsupported formats
+            continue  # skip unsupported files
 
         documents = loader.load()
         splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
@@ -93,8 +92,8 @@ def chat_rag(files, question):
 # ------------------------------
 
 with gr.Blocks() as demo:
-    gr.Markdown("# 📄 Chat-based Multi-Document RAG")
-    gr.Markdown("Upload PDFs, DOCX, or TXT files and ask questions about them in a chat interface.")
+    gr.Markdown("# 📄 Chat-based PDF, DOCX, TXT RAG")
+    gr.Markdown("Upload PDF, DOCX, or TXT files and ask questions about them in a chat interface.")
 
     with gr.Row():
         files_input = gr.File(
