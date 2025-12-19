@@ -110,7 +110,7 @@ def get_chat_history_tuples(memory_messages):
     return chat_history
 
 # ---------------------------------------
-# Chat handler
+# Chat handler (Safe, Error-Free)
 # ---------------------------------------
 def chat_with_docs(files, user_message, chat_history):
     global qa_chain
@@ -124,11 +124,25 @@ def chat_with_docs(files, user_message, chat_history):
         docs = load_documents(files)
         qa_chain = build_conversational_rag(docs)
 
-    # Ask the question
-    result = qa_chain({"question": user_message})
+    try:
+        # Ask question
+        result = qa_chain({"question": user_message})
 
-    # Convert memory to Gradio-compatible format
-    chat_history = get_chat_history_tuples(qa_chain.memory.chat_memory.messages)
+        # Safely extract answer
+        answer = result.get("answer", "❌ Could not find an answer.")
+
+        # Convert list/dict to string if necessary
+        if isinstance(answer, list):
+            answer = answer[0]['generated_text'] if 'generated_text' in answer[0] else str(answer[0])
+        elif isinstance(answer, dict):
+            answer = answer.get('generated_text', str(answer))
+
+        # Convert memory to Gradio-compatible tuples
+        chat_history = get_chat_history_tuples(qa_chain.memory.chat_memory.messages)
+
+    except Exception as e:
+        answer = f"❌ Error occurred: {str(e)}"
+        chat_history.append((user_message, answer))
 
     return chat_history, ""
 
@@ -165,6 +179,5 @@ with gr.Blocks() as demo:
 # ---------------------------------------
 if __name__ == "__main__":
     demo.launch()
-
 
 
