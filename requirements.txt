@@ -1,15 +1,16 @@
-gradio==4.44.0
+gradio
 
-langchain==0.1.16
-langchain-community==0.0.34
-langchain-huggingface==0.0.3
+langchain
+langchain-community
+langchain-huggingface
 
-transformers==4.40.2
-sentence-transformers==2.6.1
-torch>=2.0.0
+transformers
+sentence-transformers
+torch
 
-faiss-cpu==1.8.0
+faiss-cpu
 
-pypdf==4.2.0
-docx2txt==0.8
-unstructured==0.13.7
+pypdf
+docx2txt
+unstructured
+python-docx
