@@ -6,79 +6,77 @@ from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.llms import HuggingFacePipeline
 from transformers import pipeline
-import os
 
 # ------------------------------
-# Document Loading Helper
+# Helper functions
 # ------------------------------
-def load_document(path):
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".pdf":
-        loader = PyPDFLoader(path)
-    elif ext in [".txt"]:
-        loader = TextLoader(path)
-    elif ext in [".docx", ".doc"]:
-        loader = UnstructuredWordDocumentLoader(path)
-    else:
-        return []  # unsupported file
-    return loader.load()
 
-def load_and_split_files(filepaths):
+def load_and_split_docs(filepaths):
+    """Load PDFs, Word docs, or TXT files and split into chunks."""
     all_docs = []
     for path in filepaths:
-        docs = load_document(path)
+        if path.endswith(".pdf"):
+            loader = PyPDFLoader(path)
+        elif path.endswith(".docx") or path.endswith(".doc"):
+            loader = UnstructuredWordDocumentLoader(path)
+        else:
+            loader = TextLoader(path, encoding="utf-8")
+        documents = loader.load()
         splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        chunks = splitter.split_documents(docs)
+        chunks = splitter.split_documents(documents)
         all_docs.extend(chunks)
     return all_docs
 
-# ------------------------------
-# Build RAG Chatbot
-# ------------------------------
-def build_rag_chatbot(docs):
+def build_rag_chain(docs):
+    """Create vectorstore retriever and LLM chain."""
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(docs, embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k":3})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
     hf_pipeline = pipeline("text2text-generation", model="google/flan-t5-base", max_new_tokens=256)
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
-    qa_chain = RetrievalQA.from_chain_type(
+    rag_chain = RetrievalQA.from_chain_type(
         llm=llm,
         retriever=retriever,
-        chain_type="stuff",
         return_source_documents=False
     )
-    return qa_chain
+    return rag_chain
 
-# ------------------------------
-# Gradio Function
-# ------------------------------
-chatbot_chain = None
+def answer_question(files, question):
+    """Process documents and answer a question."""
+    if not files or not question:
+        return "Please upload documents and enter a question."
 
-def chat_with_docs(files, question):
-    global chatbot_chain
-    if chatbot_chain is None:
-        docs = load_and_split_files(files)
-        if not docs:
-            return "No supported documents found."
-        chatbot_chain = build_rag_chatbot(docs)
-    return chatbot_chain.run(question)
+    docs = load_and_split_docs(files)
+    rag_chain = build_rag_chain(docs)
+    response = rag_chain.run(question)
+    return response
 
 # ------------------------------
 # Gradio UI
 # ------------------------------
-with gr.Blocks() as demo:
-    gr.Markdown("# 📄 Multi-Document Chatbot")
-    gr.Markdown("Upload any combination of PDF, Word, or TXT files and ask questions about them.")
 
-    files_input = gr.File(file_types=[".pdf", ".txt", ".docx", ".doc"], type="filepath", file_count="multiple")
-    question_input = gr.Textbox(label="Ask a question")
+with gr.Blocks() as demo:
+    gr.Markdown("# 📄 Multi-Document RAG Chatbot")
+    gr.Markdown("Upload PDFs, Word documents, or TXT files and ask questions about them.")
+
+    with gr.Row():
+        doc_files = gr.File(
+            label="Upload Documents",
+            file_types=[".pdf", ".docx", ".doc", ".txt"],
+            type="filepath",
+            file_count="multiple"
+        )
+    question_input = gr.Textbox(label="Ask a question about the documents")
     answer_output = gr.Textbox(label="Answer")
 
-    submit_btn = gr.Button("Ask")
-    submit_btn.click(chat_with_docs, inputs=[files_input, question_input], outputs=[answer_output])
+    submit_btn = gr.Button("Get Answer")
+    submit_btn.click(answer_question, inputs=[doc_files, question_input], outputs=[answer_output])
 
+# ------------------------------
+# Run locally
+# ------------------------------
 if __name__ == "__main__":
     demo.launch()
 
