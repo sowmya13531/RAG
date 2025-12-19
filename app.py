@@ -1,116 +1,99 @@
 import gradio as gr
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    Docx2txtLoader
+)
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFacePipeline
+
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain.memory import ConversationBufferMemory
+
 from transformers import pipeline
-from operator import itemgetter
 
-# ------------------------------
-# Simple chat memory
-# ------------------------------
-chat_history = []
 
-# ------------------------------
-# Helper functions
-# ------------------------------
-
-def load_and_split_files(filepaths):
-    """Load PDF, DOCX, and TXT files and split them into chunks."""
-    all_docs = []
-    for path in filepaths:
-        if path.endswith(".pdf"):
-            loader = PyPDFLoader(path)
-        elif path.endswith(".docx"):
-            loader = Docx2txtLoader(path)
-        elif path.endswith(".txt"):
-            loader = TextLoader(path)
+def load_documents(files):
+    documents = []
+    for file in files:
+        if file.name.endswith(".pdf"):
+            loader = PyPDFLoader(file.name)
+        elif file.name.endswith(".txt"):
+            loader = TextLoader(file.name)
+        elif file.name.endswith(".docx"):
+            loader = Docx2txtLoader(file.name)
         else:
-            continue  # skip unsupported files
+            continue
+        documents.extend(loader.load())
+    return documents
 
-        documents = loader.load()
-        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
-        chunks = splitter.split_documents(documents)
-        all_docs.extend(chunks)
-    return all_docs
 
-def build_rag_chain_with_memory(docs, chat_history):
-    """Create vectorstore, retriever, LLM, prompt, and RAG chain."""
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    vectorstore = FAISS.from_documents(docs, embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+def build_chain(files):
+    docs = load_documents(files)
 
-    hf_pipeline = pipeline("text2text-generation", model="google/flan-t5-base", max_new_tokens=256)
-    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=50
+    )
+    splits = splitter.split_documents(docs)
 
-    prompt = PromptTemplate.from_template(
-        """You are a helpful assistant. Use the following conversation and context to answer the question.
-Conversation history:
-{chat_history}
-Context:
-{context}
-Question:
-{question}
-"""
+    embeddings = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    rag_chain = (
+    vectorstore = FAISS.from_documents(splits, embeddings)
+    retriever = vectorstore.as_retriever()
+
+    llm = HuggingFacePipeline(
+        pipeline=pipeline(
+            "text-generation",
+            model="google/flan-t5-base",
+            max_new_tokens=256
+        )
+    )
+
+    prompt = PromptTemplate.from_template(
+        """Use the following context to answer the question.
+
+        Context:
+        {context}
+
+        Question:
+        {question}
+        """
+    )
+
+    chain = (
         {
             "context": retriever,
-            "question": itemgetter("question"),
-            "chat_history": "\n".join([f"Q: {q}\nA: {a}" for q, a in chat_history])
+            "question": lambda x: x
         }
         | prompt
         | llm
         | StrOutputParser()
     )
 
-    return rag_chain
-
-def chat_rag(files, question):
-    """Main function to process files, maintain memory, and answer questions."""
-    if not files or not question:
-        return "Upload documents and ask a question.", chat_history
-
-    docs = load_and_split_files(files)
-    if not docs:
-        return "No valid documents found.", chat_history
-
-    rag_chain = build_rag_chain_with_memory(docs, chat_history)
-    answer = rag_chain.invoke({"question": question})
-
-    chat_history.append((question, answer))
-    return answer, chat_history
-
-# ------------------------------
-# Gradio UI
-# ------------------------------
-
-with gr.Blocks() as demo:
-    gr.Markdown("# 📄 Chat-based PDF, DOCX, TXT RAG")
-    gr.Markdown("Upload PDF, DOCX, or TXT files and ask questions about them in a chat interface.")
-
-    with gr.Row():
-        files_input = gr.File(
-            label="Upload Docs",
-            file_types=[".pdf", ".docx", ".txt"],
-            type="filepath",
-            file_count="multiple"
-        )
-    question_input = gr.Textbox(label="Ask a question")
-    answer_output = gr.Textbox(label="Answer")
-    chat_output = gr.Chatbot(label="Chat History")
-
-    submit_btn = gr.Button("Send")
-    submit_btn.click(chat_rag, inputs=[files_input, question_input], outputs=[answer_output, chat_output])
-
-# ------------------------------
-# Run locally
-# ------------------------------
-if __name__ == "__main__":
-    demo.launch()
+    return chain
 
 
+def chat(files, question):
+    chain = build_chain(files)
+    return chain.invoke(question)
+
+
+iface = gr.Interface(
+    fn=chat,
+    inputs=[
+        gr.File(file_types=[".pdf", ".txt", ".docx"], file_count="multiple"),
+        gr.Textbox(label="Ask a question")
+    ],
+    outputs="text",
+    title="Simple Multi-Doc RAG (HF Safe)"
+)
+
+iface.launch()
