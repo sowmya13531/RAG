@@ -92,7 +92,7 @@ iface = gr.Interface(
         gr.Textbox(label="Ask a question")
     ],
     outputs="text",
-    title="Simple Multi-Doc RAG (HF Safe)"
+    title="Doc Query RAG"
 )
 
 iface.launch()
