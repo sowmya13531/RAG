@@ -1,169 +1,118 @@
-# app.py
-
-import os
 import gradio as gr
-
-# Document loaders
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    Docx2txtLoader,
-    TextLoader,
-    CSVLoader,
-    UnstructuredHTMLLoader
-)
-
-# Text splitting
+from langchain_community.document_loaders import PyPDFLoader, DocxLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-# Embeddings & Vectorstore
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-
-# LLM wrapper
 from langchain_community.llms import HuggingFacePipeline
-
-# Conversational retrieval chain
-from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
-
-# Conversation memory
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from langchain.memory import ConversationBufferMemory
-
-# HuggingFace pipeline
 from transformers import pipeline
+from operator import itemgetter
 
-# ---------------------------------------
-# Global QA chain
-# ---------------------------------------
-qa_chain = None
+# ------------------------------
+# Global memory for conversation
+# ------------------------------
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+chat_history = []
 
-# ---------------------------------------
-# Load and split documents
-# ---------------------------------------
-def load_documents(filepaths):
+# ------------------------------
+# Helper functions
+# ------------------------------
+
+def load_and_split_files(filepaths):
+    """Load multiple file formats and split into chunks."""
     all_docs = []
-
     for path in filepaths:
-        ext = os.path.splitext(path)[1].lower()
-
-        if ext == ".pdf":
+        if path.endswith(".pdf"):
             loader = PyPDFLoader(path)
-        elif ext == ".docx":
-            loader = Docx2txtLoader(path)
-        elif ext == ".txt":
+        elif path.endswith(".docx"):
+            loader = DocxLoader(path)
+        elif path.endswith(".txt"):
             loader = TextLoader(path)
-        elif ext == ".csv":
-            loader = CSVLoader(path)
-        elif ext == ".html":
-            loader = UnstructuredHTMLLoader(path)
         else:
-            continue
+            continue  # Skip unsupported formats
 
-        all_docs.extend(loader.load())
+        documents = loader.load()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+        chunks = splitter.split_documents(documents)
+        all_docs.extend(chunks)
+    return all_docs
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=100
-    )
-
-    return splitter.split_documents(all_docs)
-
-# ---------------------------------------
-# Build Conversational RAG chain
-# ---------------------------------------
-def build_conversational_rag(docs):
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-
+def build_rag_chain_with_memory(docs, memory):
+    """Create vectorstore, retriever, LLM, prompt, and RAG chain with conversational memory."""
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(docs, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    hf_pipeline = pipeline(
-        "text2text-generation",
-        model="google/flan-t5-base",
-        max_new_tokens=256
-    )
-
+    hf_pipeline = pipeline("text2text-generation", model="google/flan-t5-base", max_new_tokens=256)
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True
+    prompt = PromptTemplate.from_template(
+        """You are a helpful assistant. Use the following conversation and context to answer the question.
+Conversation history:
+{chat_history}
+Context:
+{context}
+Question:
+{question}
+"""
     )
 
-    return ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        memory=memory
+    rag_chain = (
+        {
+            "context": retriever,
+            "question": itemgetter("question"),
+            "chat_history": memory.buffer
+        }
+        | prompt
+        | llm
+        | StrOutputParser()
     )
 
-# ---------------------------------------
-# Chat handler (Safe for Gradio)
-# ---------------------------------------
-def chat_with_docs(files, user_message, chat_history):
-    global qa_chain
+    return rag_chain
 
-    if not files:
-        chat_history.append(("System", "❌ Please upload documents first."))
-        return chat_history, ""
+def chat_rag(files, question):
+    """Main function to process files, maintain memory, and answer questions."""
+    if not files or not question:
+        return "Upload documents and ask a question.", chat_history
 
-    # Initialize QA chain if not yet done
-    if qa_chain is None:
-        docs = load_documents(files)
-        qa_chain = build_conversational_rag(docs)
+    docs = load_and_split_files(files)
+    if not docs:
+        return "No valid documents found.", chat_history
 
-    try:
-        # Ask question
-        result = qa_chain({"question": user_message})
+    rag_chain = build_rag_chain_with_memory(docs, memory)
+    answer = rag_chain.invoke({"question": question})
 
-        # Safely extract answer
-        answer = result.get("answer", "❌ Could not find an answer.")
+    chat_history.append((question, answer))
+    return answer, chat_history
 
-        # Convert to string if necessary
-        if isinstance(answer, list):
-            answer = str(answer[0])
-        elif isinstance(answer, dict):
-            answer = answer.get('generated_text', str(answer))
-
-        # Append only the latest Q/A to chat history
-        chat_history.append((user_message, answer))
-
-    except Exception as e:
-        chat_history.append((user_message, f"❌ Error occurred: {str(e)}"))
-
-    return chat_history, ""
-
-# ---------------------------------------
+# ------------------------------
 # Gradio UI
-# ---------------------------------------
+# ------------------------------
+
 with gr.Blocks() as demo:
-    gr.Markdown("# 🤖 Conversational Multi-Document RAG Chatbot")
-    gr.Markdown(
-        "Upload documents (PDF, DOCX, TXT, CSV, HTML) and chat with them using AI."
-    )
+    gr.Markdown("# 📄 Chat-based Multi-Document RAG")
+    gr.Markdown("Upload PDFs, DOCX, or TXT files and ask questions about them in a chat interface.")
 
-    file_upload = gr.File(
-        label="Upload Documents",
-        file_types=[".pdf", ".docx", ".txt", ".csv", ".html"],
-        file_count="multiple",
-        type="filepath"
-    )
+    with gr.Row():
+        files_input = gr.File(
+            label="Upload Docs",
+            file_types=[".pdf", ".docx", ".txt"],
+            type="filepath",
+            file_count="multiple"
+        )
+    question_input = gr.Textbox(label="Ask a question")
+    answer_output = gr.Textbox(label="Answer")
+    chat_output = gr.Chatbot(label="Chat History")
 
-    chatbot = gr.Chatbot()
-    user_input = gr.Textbox(
-        placeholder="Ask a question about your documents..."
-    )
-    send_btn = gr.Button("Send")
+    submit_btn = gr.Button("Send")
+    submit_btn.click(chat_rag, inputs=[files_input, question_input], outputs=[answer_output, chat_output])
 
-    send_btn.click(
-        chat_with_docs,
-        inputs=[file_upload, user_input, chatbot],
-        outputs=[chatbot, user_input]
-    )
-
-# ---------------------------------------
-# Run app
-# ---------------------------------------
+# ------------------------------
+# Run locally
+# ------------------------------
 if __name__ == "__main__":
     demo.launch()
+
 
