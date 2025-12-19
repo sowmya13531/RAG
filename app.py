@@ -1,13 +1,14 @@
 # app.py
 import gradio as gr
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain_huggingface import HuggingFacePipeline
 from transformers import pipeline
 import os
+from unstructured.partition.docx import partition_docx
 
 # ------------------------------
 # Helper functions
@@ -15,8 +16,6 @@ import os
 
 def load_and_split_docs(filepaths):
     """Load multiple files (PDF, DOCX, TXT) and split into chunks."""
-    from unstructured.partition.docx import partition_docx
-
     all_docs = []
     for path in filepaths:
         ext = os.path.splitext(path)[1].lower()
@@ -90,4 +89,5 @@ with gr.Blocks() as demo:
 # ------------------------------
 if __name__ == "__main__":
     demo.launch()
+
 
