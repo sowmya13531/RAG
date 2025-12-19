@@ -3,172 +3,150 @@
 import os
 import gradio as gr
 
-from transformers import pipeline
-from unstructured.partition.docx import partition_docx
-
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    Docx2txtLoader,
+    TextLoader,
+    CSVLoader,
+    UnstructuredHTMLLoader
+)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFacePipeline
-from langchain_classic.chains import RetrievalQA
-from langchain_core.documents import Document
+from langchain_community.llms import HuggingFacePipeline
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from transformers import pipeline
 
+# ---------------------------------------
+# Global variable to persist QA chain
+# ---------------------------------------
+qa_chain = None
 
-# =================================================
-# Document Loading & Text Extraction
-# =================================================
+# ---------------------------------------
+# Load and split documents
+# ---------------------------------------
+def load_documents(filepaths):
+    all_docs = []
 
-def extract_text_from_file(path: str) -> str:
-    """Extract raw text safely from PDF, DOCX, or TXT."""
-    ext = os.path.splitext(path)[1].lower()
-    text = ""
+    for path in filepaths:
+        ext = os.path.splitext(path)[1].lower()
 
-    try:
-        # -------- PDF --------
         if ext == ".pdf":
             loader = PyPDFLoader(path)
-            pages = loader.load()
-            text = "\n".join(
-                p.page_content for p in pages if p.page_content.strip()
-            )
-
-        # -------- DOCX --------
-        elif ext in [".docx", ".doc"]:
-            elements = partition_docx(path)
-            text = "\n".join(
-                el.text for el in elements if hasattr(el, "text") and el.text.strip()
-            )
-
-        # -------- TXT --------
+        elif ext == ".docx":
+            loader = Docx2txtLoader(path)
         elif ext == ".txt":
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                text = f.read()
+            loader = TextLoader(path)
+        elif ext == ".csv":
+            loader = CSVLoader(path)
+        elif ext == ".html":
+            loader = UnstructuredHTMLLoader(path)
+        else:
+            continue
 
-    except Exception as e:
-        print(f"[ERROR] Failed to read {path}: {e}")
+        docs = loader.load()
+        all_docs.extend(docs)
 
-    return text.strip()
-
-
-def load_and_split_docs(filepaths):
-    """Convert extracted text into LangChain Documents."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=100
     )
 
-    documents = []
+    return splitter.split_documents(all_docs)
 
-    for path in filepaths:
-        raw_text = extract_text_from_file(path)
-
-        if not raw_text:
-            print(f"[WARN] No text found in {path}")
-            continue
-
-        doc = Document(
-            page_content=raw_text,
-            metadata={"source": os.path.basename(path)}
-        )
-
-        chunks = splitter.split_documents([doc])
-        documents.extend(chunks)
-
-        print(f"[OK] Loaded {len(chunks)} chunks from {path}")
-
-    return documents
-
-
-# =================================================
-# RAG Chain
-# =================================================
-
-def build_rag_chain(docs):
+# ---------------------------------------
+# Build Conversational RAG Chain
+# ---------------------------------------
+def build_conversational_rag(docs):
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
     vectorstore = FAISS.from_documents(docs, embeddings)
+
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    hf_pipe = pipeline(
+    hf_pipeline = pipeline(
         "text2text-generation",
         model="google/flan-t5-base",
         max_new_tokens=256
     )
 
-    llm = HuggingFacePipeline(pipeline=hf_pipe)
+    llm = HuggingFacePipeline(pipeline=hf_pipeline)
 
-    return RetrievalQA.from_chain_type(
+    memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        return_messages=True
+    )
+
+    qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
-        chain_type="stuff",
         retriever=retriever,
+        memory=memory,
         return_source_documents=False
     )
 
+    return qa_chain
 
-# =================================================
-# Gradio Callback
-# =================================================
+# ---------------------------------------
+# Chat handler
+# ---------------------------------------
+def chat_with_docs(files, user_message, chat_history):
+    global qa_chain
 
-def answer_question(files, question):
     if not files:
-        return "❗ Please upload at least one document."
+        chat_history.append(
+            ("System", "❌ Please upload documents first.")
+        )
+        return chat_history, ""
 
-    if not question.strip():
-        return "❗ Please enter a question."
+    if qa_chain is None:
+        docs = load_documents(files)
+        qa_chain = build_conversational_rag(docs)
 
-    docs = load_and_split_docs(files)
+    result = qa_chain({"question": user_message})
+    answer = result["answer"]
 
-    if not docs:
-        return "❗ No readable text found in uploaded documents."
+    chat_history.append((user_message, answer))
+    return chat_history, ""
 
-    try:
-        rag_chain = build_rag_chain(docs)
-        return rag_chain.run(question)
-    except Exception as e:
-        return f"⚠️ Error: {str(e)}"
-
-
-# =================================================
+# ---------------------------------------
 # Gradio UI
-# =================================================
-
+# ---------------------------------------
 with gr.Blocks() as demo:
-    gr.Markdown("# 📄 Multi-Document RAG Chatbot")
-    gr.Markdown("Upload **PDF / DOCX / TXT** files and ask questions about them.")
+    gr.Markdown("# 🤖 Conversational Multi-Document RAG Chatbot")
+    gr.Markdown(
+        "Upload documents (PDF, DOCX, TXT, CSV, HTML) and chat with them using AI."
+    )
 
-    doc_files = gr.File(
+    file_upload = gr.File(
         label="Upload Documents",
-        file_types=[".pdf", ".docx", ".doc", ".txt"],
+        file_types=[".pdf", ".docx", ".txt", ".csv", ".html"],
         file_count="multiple",
         type="filepath"
     )
 
-    question = gr.Textbox(
-        label="Your Question",
-        placeholder="What is this document about?"
+    chatbot = gr.Chatbot(label="Chat")
+    user_input = gr.Textbox(
+        label="Ask a question",
+        placeholder="Ask anything about your documents..."
     )
 
-    answer = gr.Textbox(
-        label="Answer",
-        lines=6
+    send_btn = gr.Button("Send")
+
+    send_btn.click(
+        chat_with_docs,
+        inputs=[file_upload, user_input, chatbot],
+        outputs=[chatbot, user_input]
     )
 
-    gr.Button("Get Answer").click(
-        fn=answer_question,
-        inputs=[doc_files, question],
-        outputs=answer
-    )
-
-
-# =================================================
-# Run App
-# =================================================
-
+# ---------------------------------------
+# Run app
+# ---------------------------------------
 if __name__ == "__main__":
     demo.launch()
+
 
 
 
