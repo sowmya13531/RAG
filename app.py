@@ -91,7 +91,12 @@ iface = gr.Interface(
         gr.File(file_types=[".pdf", ".txt", ".docx"], file_count="multiple"),
         gr.Textbox(label="Ask a question")
     ],
-    outputs="text",
+    outputs=gr.Textbox(
+        label = 'Answer',
+        lines=20,
+        max_lines=40,
+        interactive=False
+    )
     title="Doc Query RAG"
 )
 
