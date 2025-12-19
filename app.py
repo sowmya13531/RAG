@@ -1,7 +1,7 @@
 # app.py
 import gradio as gr
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
