@@ -1,5 +1,5 @@
 import gradio as gr
-from langchain_community.document_loaders import PyPDFLoader, DocxLoader, TextLoader
+from langchain.document_loaders import PyPDFLoader, UnstructuredWordDocumentLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -27,7 +27,7 @@ def load_and_split_files(filepaths):
         if path.endswith(".pdf"):
             loader = PyPDFLoader(path)
         elif path.endswith(".docx"):
-            loader = DocxLoader(path)
+            loader = UnstructuredWordDocumentLoader(path)
         elif path.endswith(".txt"):
             loader = TextLoader(path)
         else:
