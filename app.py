@@ -6,7 +6,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain.memory import ConversationBufferMemory
+from langchain_community.memory import ConversationBufferMemory
 from transformers import pipeline
 from operator import itemgetter
 
