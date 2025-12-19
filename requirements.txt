@@ -3,6 +3,8 @@ gradio
 langchain
 langchain-community
 langchain-huggingface
+langchain-core
+langchain-text-splitters
 
 transformers
 sentence-transformers
