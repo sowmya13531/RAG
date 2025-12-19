@@ -15,24 +15,24 @@ from langchain_community.document_loaders import (
 # Text splitting
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Embeddings and vectorstore
+# Embeddings & Vectorstore
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 # LLM wrapper
 from langchain_community.llms import HuggingFacePipeline
 
-# ✅ Correct import for LangChain 0.1.x
+# Correct import for LangChain 0.1.x
 from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
 
-# Memory for conversation
+# Conversation memory
 from langchain.memory import ConversationBufferMemory
 
 # HuggingFace pipeline
 from transformers import pipeline
 
 # ---------------------------------------
-# Global QA chain variable
+# Global QA chain
 # ---------------------------------------
 qa_chain = None
 
@@ -98,6 +98,18 @@ def build_conversational_rag(docs):
     )
 
 # ---------------------------------------
+# Convert LangChain memory to Gradio tuples
+# ---------------------------------------
+def get_chat_history_tuples(memory_messages):
+    chat_history = []
+    # Messages stored in order: user -> assistant -> user -> assistant ...
+    for i in range(0, len(memory_messages), 2):
+        user_msg = memory_messages[i]["content"] if i < len(memory_messages) else ""
+        ai_msg = memory_messages[i+1]["content"] if i+1 < len(memory_messages) else ""
+        chat_history.append((user_msg, ai_msg))
+    return chat_history
+
+# ---------------------------------------
 # Chat handler
 # ---------------------------------------
 def chat_with_docs(files, user_message, chat_history):
@@ -107,14 +119,17 @@ def chat_with_docs(files, user_message, chat_history):
         chat_history.append(("System", "❌ Please upload documents first."))
         return chat_history, ""
 
+    # Initialize QA chain if not yet done
     if qa_chain is None:
         docs = load_documents(files)
         qa_chain = build_conversational_rag(docs)
 
+    # Ask the question
     result = qa_chain({"question": user_message})
-    answer = result["answer"]
 
-    chat_history.append((user_message, answer))
+    # Convert memory to Gradio-compatible format
+    chat_history = get_chat_history_tuples(qa_chain.memory.chat_memory.messages)
+
     return chat_history, ""
 
 # ---------------------------------------
@@ -123,7 +138,7 @@ def chat_with_docs(files, user_message, chat_history):
 with gr.Blocks() as demo:
     gr.Markdown("# 🤖 Conversational Multi-Document RAG Chatbot")
     gr.Markdown(
-        "Upload documents (PDF, DOCX, TXT, CSV, HTML) and chat with them."
+        "Upload documents (PDF, DOCX, TXT, CSV, HTML) and chat with them using AI."
     )
 
     file_upload = gr.File(
@@ -135,7 +150,7 @@ with gr.Blocks() as demo:
 
     chatbot = gr.Chatbot()
     user_input = gr.Textbox(
-        placeholder="Ask about your documents..."
+        placeholder="Ask a question about your documents..."
     )
     send_btn = gr.Button("Send")
 
@@ -150,5 +165,6 @@ with gr.Blocks() as demo:
 # ---------------------------------------
 if __name__ == "__main__":
     demo.launch()
+
 
 
