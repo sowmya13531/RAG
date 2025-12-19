@@ -96,7 +96,7 @@ iface = gr.Interface(
         lines=20,
         max_lines=40,
         interactive=False
-    )
+    ),
     title="Doc Query RAG"
 )
 
