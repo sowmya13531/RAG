@@ -1,5 +1,6 @@
 import gradio as gr
-from langchain.document_loaders import PyPDFLoader, UnstructuredWordDocumentLoader, TextLoader
+from langchain.document_loaders import PyPDFLoader, TextLoader
+from langchain.document_loaders.unstructured import UnstructuredWordDocumentLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
@@ -114,7 +115,6 @@ with gr.Blocks() as demo:
 # ------------------------------
 if __name__ == "__main__":
     demo.launch()
-
 
 
 
