@@ -1,11 +1,11 @@
 import gradio as gr
 from langchain.document_loaders import PyPDFLoader, UnstructuredWordDocumentLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.llms import HuggingFacePipeline
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
+from langchain.llms import HuggingFacePipeline
+from langchain.prompts import PromptTemplate
+from langchain.output_parsers import StrOutputParser
 from langchain.memory import ConversationBufferMemory
 from transformers import pipeline
 from operator import itemgetter
@@ -114,6 +114,7 @@ with gr.Blocks() as demo:
 # ------------------------------
 if __name__ == "__main__":
     demo.launch()
+
 
 
 
