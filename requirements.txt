@@ -14,5 +14,4 @@ faiss-cpu
 
 pypdf
 docx2txt
-unstructured
-python-docx
+
