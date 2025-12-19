@@ -4,6 +4,8 @@ gradio>=6.0,<7
 # LangChain
 langchain>=1.0,<1.3
 langchain-community
+langchain-huggingface
+langchain-text-splitters
 
 # HuggingFace Transformers
 transformers>=4.35,<5
