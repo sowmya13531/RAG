@@ -22,7 +22,7 @@ from langchain_community.vectorstores import FAISS
 # LLM wrapper
 from langchain_community.llms import HuggingFacePipeline
 
-# Correct import for LangChain 0.1.x
+# Conversational retrieval chain
 from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
 
 # Conversation memory
@@ -98,19 +98,7 @@ def build_conversational_rag(docs):
     )
 
 # ---------------------------------------
-# Convert LangChain memory to Gradio tuples
-# ---------------------------------------
-def get_chat_history_tuples(memory_messages):
-    chat_history = []
-    # Messages stored in order: user -> assistant -> user -> assistant ...
-    for i in range(0, len(memory_messages), 2):
-        user_msg = memory_messages[i]["content"] if i < len(memory_messages) else ""
-        ai_msg = memory_messages[i+1]["content"] if i+1 < len(memory_messages) else ""
-        chat_history.append((user_msg, ai_msg))
-    return chat_history
-
-# ---------------------------------------
-# Chat handler (Safe, Error-Free)
+# Chat handler (Safe for Gradio)
 # ---------------------------------------
 def chat_with_docs(files, user_message, chat_history):
     global qa_chain
@@ -131,18 +119,17 @@ def chat_with_docs(files, user_message, chat_history):
         # Safely extract answer
         answer = result.get("answer", "❌ Could not find an answer.")
 
-        # Convert list/dict to string if necessary
+        # Convert to string if necessary
         if isinstance(answer, list):
-            answer = answer[0]['generated_text'] if 'generated_text' in answer[0] else str(answer[0])
+            answer = str(answer[0])
         elif isinstance(answer, dict):
             answer = answer.get('generated_text', str(answer))
 
-        # Convert memory to Gradio-compatible tuples
-        chat_history = get_chat_history_tuples(qa_chain.memory.chat_memory.messages)
+        # Append only the latest Q/A to chat history
+        chat_history.append((user_message, answer))
 
     except Exception as e:
-        answer = f"❌ Error occurred: {str(e)}"
-        chat_history.append((user_message, answer))
+        chat_history.append((user_message, f"❌ Error occurred: {str(e)}"))
 
     return chat_history, ""
 
@@ -179,5 +166,4 @@ with gr.Blocks() as demo:
 # ---------------------------------------
 if __name__ == "__main__":
     demo.launch()
-
 
