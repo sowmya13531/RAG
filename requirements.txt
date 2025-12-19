@@ -1,24 +1,24 @@
 # UI
 gradio>=6.0,<7
 
-# Core LangChain
-langchain>=0.1.0,<1.3
+# LangChain
+langchain>=1.0,<1.3
 
-# HuggingFace Transformers & LLM pipeline
+# HuggingFace Transformers
 transformers>=4.35,<5
 torch>=2.1,<3
 
-# Sentence Transformers for embeddings
+# Embeddings
 sentence-transformers>=2.2.2,<3
 
 # Vectorstore
-faiss-cpu>=1.7.4,<2  # Use faiss-gpu if deploying on GPU
+faiss-cpu>=1.7.4,<2
 
 # Document parsing
 unstructured>=0.7.10,<0.8
 python-magic>=0.4.27,<0.5
 
-# Optional GPU optimization for large models
+# Optional GPU optimization
 accelerate>=0.21,<1
 bitsandbytes>=0.41.0,<1
 
