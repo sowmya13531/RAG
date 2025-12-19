@@ -19,11 +19,11 @@ sentence-transformers>=2.2.2,<3
 faiss-cpu>=1.7.4,<2
 
 # Document parsing
+pypdf==4.2.0
+docx2txt==0.8
 unstructured>=0.7.10,<0.8
 python-magic>=0.4.27,<0.5
 
 # Optional GPU optimization
 accelerate>=0.21,<1
 bitsandbytes>=0.41.0,<1
-
-
