@@ -16,7 +16,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFacePipeline
 
 # ✅ FIXED IMPORT
-from langchain.chains.conversational_retrieval.base import ConversationalRetrievalChain
+from langchain.chains import ConversationalRetrievalChain
 
 from langchain.memory import ConversationBufferMemory
 from transformers import pipeline
