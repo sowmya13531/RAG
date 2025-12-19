@@ -1,65 +1,88 @@
 # app.py
 
-import gradio as gr
 import os
-
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_classic.chains import RetrievalQA
-from langchain_huggingface import HuggingFacePipeline
-from langchain_core.documents import Document
+import gradio as gr
 
 from transformers import pipeline
 from unstructured.partition.docx import partition_docx
 
-# -------------------------------------------------
-# Helper Functions
-# -------------------------------------------------
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_huggingface.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFacePipeline
+from langchain_classic.chains import RetrievalQA
+from langchain_core.documents import Document
 
-def load_and_split_docs(filepaths):
-    all_docs = []
 
-    for path in filepaths:
-        ext = os.path.splitext(path)[1].lower()
+# =================================================
+# Document Loading & Text Extraction
+# =================================================
 
-        try:
-            # ---------- PDF ----------
-            if ext == ".pdf":
-                loader = PyPDFLoader(path)
-                docs = loader.load()
+def extract_text_from_file(path: str) -> str:
+    """Extract raw text safely from PDF, DOCX, or TXT."""
+    ext = os.path.splitext(path)[1].lower()
+    text = ""
 
-            # ---------- DOCX ----------
-            elif ext in [".docx", ".doc"]:
-                elements = partition_docx(path)
-                text = "\n".join(str(el) for el in elements)
-                docs = [Document(
-                    page_content=text,
-                    metadata={"source": os.path.basename(path)}
-                )]
-
-            # ---------- TXT ----------
-            elif ext == ".txt":
-                loader = TextLoader(path, encoding="utf-8")
-                docs = loader.load()
-
-            else:
-                continue
-
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=500,
-                chunk_overlap=100
+    try:
+        # -------- PDF --------
+        if ext == ".pdf":
+            loader = PyPDFLoader(path)
+            pages = loader.load()
+            text = "\n".join(
+                p.page_content for p in pages if p.page_content.strip()
             )
 
-            chunks = splitter.split_documents(docs)
-            all_docs.extend(chunks)
+        # -------- DOCX --------
+        elif ext in [".docx", ".doc"]:
+            elements = partition_docx(path)
+            text = "\n".join(
+                el.text for el in elements if hasattr(el, "text") and el.text.strip()
+            )
 
-        except Exception as e:
-            print(f"Error processing {path}: {e}")
+        # -------- TXT --------
+        elif ext == ".txt":
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                text = f.read()
 
-    return all_docs
+    except Exception as e:
+        print(f"[ERROR] Failed to read {path}: {e}")
 
+    return text.strip()
+
+
+def load_and_split_docs(filepaths):
+    """Convert extracted text into LangChain Documents."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100
+    )
+
+    documents = []
+
+    for path in filepaths:
+        raw_text = extract_text_from_file(path)
+
+        if not raw_text:
+            print(f"[WARN] No text found in {path}")
+            continue
+
+        doc = Document(
+            page_content=raw_text,
+            metadata={"source": os.path.basename(path)}
+        )
+
+        chunks = splitter.split_documents([doc])
+        documents.extend(chunks)
+
+        print(f"[OK] Loaded {len(chunks)} chunks from {path}")
+
+    return documents
+
+
+# =================================================
+# RAG Chain
+# =================================================
 
 def build_rag_chain(docs):
     embeddings = HuggingFaceEmbeddings(
@@ -67,26 +90,27 @@ def build_rag_chain(docs):
     )
 
     vectorstore = FAISS.from_documents(docs, embeddings)
-
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    hf_pipeline = pipeline(
+    hf_pipe = pipeline(
         "text2text-generation",
         model="google/flan-t5-base",
         max_new_tokens=256
     )
 
-    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+    llm = HuggingFacePipeline(pipeline=hf_pipe)
 
-    rag_chain = RetrievalQA.from_chain_type(
+    return RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
         retriever=retriever,
         return_source_documents=False
     )
 
-    return rag_chain
 
+# =================================================
+# Gradio Callback
+# =================================================
 
 def answer_question(files, question):
     if not files:
@@ -97,54 +121,54 @@ def answer_question(files, question):
 
     docs = load_and_split_docs(files)
 
-    if len(docs) == 0:
+    if not docs:
         return "❗ No readable text found in uploaded documents."
 
     try:
         rag_chain = build_rag_chain(docs)
         return rag_chain.run(question)
     except Exception as e:
-        return f"⚠️ Error while answering: {str(e)}"
+        return f"⚠️ Error: {str(e)}"
 
 
-# -------------------------------------------------
+# =================================================
 # Gradio UI
-# -------------------------------------------------
+# =================================================
 
 with gr.Blocks() as demo:
     gr.Markdown("# 📄 Multi-Document RAG Chatbot")
-    gr.Markdown("Upload multiple PDFs, Word documents, or TXT files and ask questions.")
+    gr.Markdown("Upload **PDF / DOCX / TXT** files and ask questions about them.")
 
-    with gr.Row():
-        doc_files = gr.File(
-            label="Upload Documents",
-            file_types=[".pdf", ".txt", ".docx", ".doc"],
-            file_count="multiple",
-            type="filepath"
-        )
-
-    question_input = gr.Textbox(
-        label="Ask a question",
-        placeholder="What is the document about?"
+    doc_files = gr.File(
+        label="Upload Documents",
+        file_types=[".pdf", ".docx", ".doc", ".txt"],
+        file_count="multiple",
+        type="filepath"
     )
 
-    answer_output = gr.Textbox(label="Answer", lines=6)
+    question = gr.Textbox(
+        label="Your Question",
+        placeholder="What is this document about?"
+    )
 
-    submit_btn = gr.Button("Get Answer")
+    answer = gr.Textbox(
+        label="Answer",
+        lines=6
+    )
 
-    submit_btn.click(
+    gr.Button("Get Answer").click(
         fn=answer_question,
-        inputs=[doc_files, question_input],
-        outputs=answer_output
+        inputs=[doc_files, question],
+        outputs=answer
     )
 
-# -------------------------------------------------
+
+# =================================================
 # Run App
-# -------------------------------------------------
+# =================================================
 
 if __name__ == "__main__":
     demo.launch()
-
 
 
 
