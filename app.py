@@ -129,8 +129,8 @@ iface = gr.Interface(
         max_lines=30,
         interactive=False
     ),
-    title="📄 Document Query RAG",
-    description="Upload documents and ask questions based only on their content."
+    title="📄 Doc Query RAG",
+    description="Upload documents(PDF, DOCX, TXT) and ask questions based only on their content."
 )
 
 iface.launch()
