@@ -13,10 +13,14 @@ from langchain_community.llms import HuggingFacePipeline
 
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
 
 from transformers import pipeline
 
 
+# ---------------------------
+# Load documents
+# ---------------------------
 def load_documents(files):
     documents = []
     for file in files:
@@ -28,10 +32,22 @@ def load_documents(files):
             loader = Docx2txtLoader(file.name)
         else:
             continue
+
         documents.extend(loader.load())
+
     return documents
 
 
+# ---------------------------
+# Format documents correctly
+# ---------------------------
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+
+# ---------------------------
+# Build RAG chain
+# ---------------------------
 def build_chain(files):
     docs = load_documents(files)
 
@@ -46,7 +62,7 @@ def build_chain(files):
     )
 
     vectorstore = FAISS.from_documents(splits, embeddings)
-    retriever = vectorstore.as_retriever()
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
 
     llm = HuggingFacePipeline(
         pipeline=pipeline(
@@ -57,20 +73,20 @@ def build_chain(files):
     )
 
     prompt = PromptTemplate.from_template(
-        """Use the following context to answer the question.
-
-        Context:
-        {context}
-
-        Question:
-        {question}
-        """
+        """Answer the question using ONLY the context below.
+If the answer is not in the context, say "I don't know."
+Context:
+{context}
+Question:
+{question}
+Answer:
+"""
     )
 
     chain = (
         {
-            "context": retriever,
-            "question": lambda x: x
+            "context": retriever | format_docs,
+            "question": RunnablePassthrough()
         }
         | prompt
         | llm
@@ -80,24 +96,41 @@ def build_chain(files):
     return chain
 
 
+# ---------------------------
+# Chat function
+# ---------------------------
 def chat(files, question):
+    if not files:
+        return "Please upload at least one document."
+
     chain = build_chain(files)
     return chain.invoke(question)
 
 
+# ---------------------------
+# Gradio UI
+# ---------------------------
 iface = gr.Interface(
     fn=chat,
     inputs=[
-        gr.File(file_types=[".pdf", ".txt", ".docx"], file_count="multiple"),
-        gr.Textbox(label="Ask a question")
+        gr.File(
+            file_types=[".pdf", ".txt", ".docx"],
+            file_count="multiple",
+            label="Upload documents"
+        ),
+        gr.Textbox(
+            label="Ask a question",
+            placeholder="What is this document about?"
+        )
     ],
     outputs=gr.Textbox(
-        label = 'Answer',
-        lines=20,
-        max_lines=40,
+        label="Answer",
+        lines=15,
+        max_lines=30,
         interactive=False
     ),
-    title="Doc Query RAG"
+    title="📄 Document Query RAG",
+    description="Upload documents and ask questions based only on their content."
 )
 
 iface.launch()
