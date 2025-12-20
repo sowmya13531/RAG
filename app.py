@@ -1,35 +1,29 @@
 import gradio as gr
-
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    Docx2txtLoader
-)
-
+from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import HuggingFacePipeline
-
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-
 from transformers import pipeline
 
+vectorstore = None
 
-# ---------------------------
-# Load documents
-# ---------------------------
+
 def load_documents(files):
     documents = []
+
     for file in files:
-        if file.name.endswith(".pdf"):
-            loader = PyPDFLoader(file.name)
-        elif file.name.endswith(".txt"):
-            loader = TextLoader(file.name)
-        elif file.name.endswith(".docx"):
-            loader = Docx2txtLoader(file.name)
+        path = file.name
+
+        if path.endswith(".pdf"):
+            loader = PyPDFLoader(path)
+        elif path.endswith(".txt"):
+            loader = TextLoader(path)
+        elif path.endswith(".docx"):
+            loader = Docx2txtLoader(path)
         else:
             continue
 
@@ -38,17 +32,11 @@ def load_documents(files):
     return documents
 
 
-# ---------------------------
-# Format documents correctly
-# ---------------------------
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
 
-# ---------------------------
-# Build RAG chain
-# ---------------------------
-def build_chain(files):
+def build_vectorstore(files):
     docs = load_documents(files)
 
     splitter = RecursiveCharacterTextSplitter(
@@ -61,12 +49,15 @@ def build_chain(files):
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    vectorstore = FAISS.from_documents(splits, embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+    return FAISS.from_documents(splits, embeddings)
+
+
+def build_chain(vs):
+    retriever = vs.as_retriever(search_kwargs={"k": 4})
 
     llm = HuggingFacePipeline(
         pipeline=pipeline(
-            "text-generation",
+            "text2text-generation",
             model="google/flan-t5-base",
             max_new_tokens=256
         )
@@ -83,7 +74,7 @@ Answer:
 """
     )
 
-    chain = (
+    return (
         {
             "context": retriever | format_docs,
             "question": RunnablePassthrough()
@@ -93,44 +84,28 @@ Answer:
         | StrOutputParser()
     )
 
-    return chain
 
-
-# ---------------------------
-# Chat function
-# ---------------------------
 def chat(files, question):
+    global vectorstore
+
     if not files:
         return "Please upload at least one document."
 
-    chain = build_chain(files)
+    if vectorstore is None:
+        vectorstore = build_vectorstore(files)
+
+    chain = build_chain(vectorstore)
     return chain.invoke(question)
 
 
-# ---------------------------
-# Gradio UI
-# ---------------------------
 iface = gr.Interface(
     fn=chat,
     inputs=[
-        gr.File(
-            file_types=[".pdf", ".txt", ".docx"],
-            file_count="multiple",
-            label="Upload documents"
-        ),
-        gr.Textbox(
-            label="Ask a question",
-            placeholder="What is this document about?"
-        )
+        gr.File(file_types=[".pdf", ".txt", ".docx"], file_count="multiple"),
+        gr.Textbox(label="Ask a question")
     ],
-    outputs=gr.Textbox(
-        label="Answer",
-        lines=15,
-        max_lines=30,
-        interactive=False
-    ),
-    title="📄 Doc Query RAG",
-    description="Upload documents(PDF, DOCX, TXT) and ask questions based only on their content."
+    outputs=gr.Textbox(label="Answer", lines=10),
+    title="📄 Doc Query RAG"
 )
 
 iface.launch()
