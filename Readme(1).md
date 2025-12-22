@@ -64,7 +64,7 @@ cd RetrievalAugmentedGenerator
 ## 📥 Clone the Repository from Github
 
 ```bash
-git clone https://github.com/Sowmya135/RAG
+git clone https://github.com/sowmya13531/RAG
 cd RAG
 ```
 
