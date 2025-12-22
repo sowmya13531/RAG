@@ -46,7 +46,7 @@ A **Retrieval-Augmented Generation (RAG)** application that allows users to uplo
 
 > This is an **open-source LLM** running locally inside Hugging Face Spaces.
 
-## 💰 Cost Clarification (Important)
+## 💰 Cost 
 
 ✅ **No token-based billing**
 ✅ **No API keys required**
